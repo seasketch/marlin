@@ -4,16 +4,14 @@ library(jsonlite)
 library(dplyr)
 library(tidyr)
 library(purrr)
-library(ggplot2)
 library(sf)
-library(rnaturalearth)
 library(raster)
 library(readr)
 
 # Run_marlin is the function running in lambda
-run_marlin <- function(number) {
+run_marlin <- function(mpa_in) {
   # Ensure piping is working
-  print(paste("input =", number))
+  print(paste("input =", mpa_in))
   
   # Create baseline parameters
   years <- 100
@@ -84,24 +82,6 @@ run_marlin <- function(number) {
     dplyr::select(-x) %>%
     as.matrix() 
   
-  # Map habitats
-  belize <- ne_countries(country = "Belize", returnclass = "sf")
-  
-  ggplot() +
-    geom_tile(data = seagrass_ras, aes(x = x, y = y, fill = layer)) +
-    labs(title = "Seagrass / Juvenile Habitat") +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") 
-  
-  ggplot() +
-    geom_tile(data = reef_ras, aes(x = x, y = y, fill = layer)) +
-    labs(title = "Reef / Reef Habitat") +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") 
-  
-  ggplot() +
-    geom_tile(data = seagrass_reef_ras, aes(x = x, y = y, fill = layer)) +
-    labs(title = "Seagrass Reef / Lobster Habitat") +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") 
-
   ports <-  data.frame(x =  c(15, 15),
                        y = c(11, 11),
                        fleet = c(1, 2))
@@ -248,23 +228,16 @@ run_marlin <- function(number) {
                  "snapper_fleet" = snapper_fleet)
   
   fleets <- tune_fleets(fauna, fleets)
-  
-  write_rds(
-    list(fauna = fauna, fleets = fleets),
-    file = file.path("data/fauna_and_fleets.rds")
-  )
 
   
   
   # Simulate baseline dynamic, without any MPAs
+  print("Simulate baseline")
   no_mpa_sim <- simmar(fauna = fauna,
                      fleets = fleets,
                      years = 100)
   
   prs_nompa <- process_marlin(no_mpa_sim, keep_age = FALSE)
-  
-  plot_marlin(prs = prs_nompa, plot_var = "ssb")
-  plot_marlin(prs = prs_nompa, plot_var = "ssb", plot_type = "space")
   
   patch_noMPA <-
     map_df(no_mpa_sim, ~ map_df(.x, ~ tibble(
@@ -282,6 +255,7 @@ run_marlin <- function(number) {
   
   
   # Simulate dynamics with only existing MPAs
+  print("Simulate existing MPAs")
   mpa <- st_read("data/Existing-MPAs.geojson.json")
   mpa_union <- st_union(mpa)
   existing_mpa_sf <- st_as_sf(seagrass_ras, coords = c("x", "y"), crs = st_crs(mpa))
@@ -293,12 +267,6 @@ run_marlin <- function(number) {
     mutate(x = st_coordinates(geometry)[, 1],
            y = st_coordinates(geometry)[, 2]) %>%
     st_drop_geometry()
-  
-  ggplot() +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") +
-    geom_tile(data = mpa_spatial, aes(x = x, y = y, fill = mpa)) +
-    geom_sf(data = mpa, fill = NA, color = "gray50") +
-    labs(title = "MPA Locations") 
   
   mpa_locations <- mpa_spatial %>% 
     left_join(x_id) %>% 
@@ -320,8 +288,6 @@ run_marlin <- function(number) {
   
   prs_existing <- process_marlin(existing_mpa_sim, keep_age = FALSE)
   
-  plot_marlin(prs = prs_existing, plot_var = "ssb")
-  
   patch_existing_MPA <-
     map_df(existing_mpa_sim, ~ map_df(.x, ~ tibble(
       catch = rowSums(.x$c_p_fl),
@@ -336,31 +302,11 @@ run_marlin <- function(number) {
               biomass_existingMPA = sum(biomass),
               ssb_existingMPA = sum(ssb))
   
-  ## Plot catch
-  plot_marlin(prs_existing, max_scale = TRUE, plot_var = "c", plot_type = "space")
-  
-  existing_catch <- prs_existing$fleets |>
-    filter(step == max(step)) |>
-    group_by(x,y) |>
-    summarise(catch = sum(catch), .groups = "drop") %>%
-    rename(id.x = x, id.y = y)
-  
-  catch_located <- existing_catch %>%
-    left_join(x_id, by = "id.x") %>%
-    left_join(y_id, by = "id.y") %>%
-    dplyr::select(x, y, catch)
-  
-  ggplot() +
-    geom_tile(data = catch_located, aes(x,y, fill = catch)) +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") +
-    geom_sf(data = mpa, fill = NA, color = "gray50") +
-    labs(title = "Snapper Catch") 
-  
-  
   
   # Simulate dynamics with existing MPAs plus proposed MPAs
-  mpa <- st_read("data/sketch.geojson.json")
+  print("Simulate existing MPAs + new MPA")
   existingmpa  <- st_read("data/Existing-MPAs.geojson.json")
+  mpa <- st_read(mpa_in)
   mpa_union <- st_union(mpa, existingmpa)
   seagrass_sf <- st_as_sf(seagrass_ras, coords = c("x", "y"), crs = st_crs(mpa_union))
   seagrass_sf <- seagrass_sf %>%
@@ -372,13 +318,6 @@ run_marlin <- function(number) {
     mutate(x = st_coordinates(geometry)[, 1],
            y = st_coordinates(geometry)[, 2]) %>%
     st_drop_geometry()
-  
-  ggplot() +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") +
-    geom_tile(data = mpa_spatial, aes(x = x, y = y, fill = mpa)) +
-    geom_sf(data = mpa, fill = NA, color = "gray50") +
-    geom_sf(data = existingmpa, fill = NA, color = "gray50") +
-    labs(title = "MPA Locations") 
   
   mpa_locations <- mpa_spatial %>% 
     left_join(x_id, by = "x") %>% 
@@ -400,28 +339,6 @@ run_marlin <- function(number) {
   
   prs_sketch <- process_marlin(mpa_sim, keep_age = FALSE)
   
-  ## Plot catch
-  plot_marlin(prs_sketch, max_scale = TRUE, plot_var = "c", plot_type = "space")
-  
-  sketch_catch <- prs_sketch$fleets |>
-    filter(step == max(step)) |>
-    group_by(x,y) |>
-    summarise(catch = sum(catch), .groups = "drop") %>%
-    rename(id.x = x, id.y = y)
-  
-  catch_located <- sketch_catch %>%
-    left_join(x_id, by = "id.x") %>%
-    left_join(y_id, by = "id.y") %>%
-    dplyr::select(x, y, catch)
-  
-  ggplot() +
-    geom_tile(data = catch_located, aes(x,y, fill = catch)) +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") +
-    geom_sf(data = mpa, fill = NA, color = "gray50") +
-    geom_sf(data = existingmpa, fill = NA, color = "gray50") +
-    labs(title = "Snapper Catch") 
-  
-  
   patch_MPA <-
     map_df(mpa_sim, ~ map_df(.x, ~ tibble(
       catch = rowSums(.x$c_p_fl),
@@ -436,189 +353,40 @@ run_marlin <- function(number) {
               biomass_MPA = sum(biomass),
               ssb_MPA = sum(ssb))
   
-  # Compare outcomes
-  plot_marlin(
-    `MPA: Existing` = prs_existing,
-    `No MPA` = prs_nompa,
-    `MPA: Existing + Sketch` = prs_sketch,
-    steps_to_plot = 50:100,
-    plot_var = "c",
-    max_scale = FALSE
-  )
-  
-  ## Bar chart
-  patch_dta = patch_noMPA %>% 
-    left_join(patch_existing_MPA) %>% 
-    left_join(patch_MPA) %>% 
-    filter(year == 100) %>% 
-    reshape2::melt(id.vars = c("year", "critter")) %>% 
-    separate(variable, "_", into = c("variable","is_MPA")) %>% 
-    as.data.frame()
-  
-  ggplot(data = patch_dta, aes(x=variable, y=value, fill = is_MPA)) +
-    facet_wrap(~critter) +
-    geom_col(position = "dodge")
-  
-  ## Over time
-  patch_noMPA <- patch_noMPA %>%
+  p1 <- patch_noMPA %>%
     rename(
-      year = year,                    
-      catch    = catch_noMPA,
-      biomass  = biomass_noMPA,
-      ssb  = ssb_noMPA
+      catch   = catch_noMPA,
+      biomass = biomass_noMPA,
+      ssb     = ssb_noMPA
     ) %>%
     mutate(scenario = "No MPA")
   
-  patch_existing_MPA <- patch_existing_MPA %>%
+  p2 <- patch_existing_MPA %>%
     rename(
-      year = year,
-      catch    = catch_existingMPA,
-      biomass  = biomass_existingMPA,
-      ssb  = ssb_existingMPA
+      catch   = catch_existingMPA,
+      biomass = biomass_existingMPA,
+      ssb     = ssb_existingMPA
     ) %>%
     mutate(scenario = "Existing MPA")
   
-  patch_MPA <- patch_MPA %>%
+  p3 <- patch_MPA %>%
     rename(
-      year = year,
-      catch    = catch_MPA,
-      biomass  = biomass_MPA,
-      ssb  = ssb_MPA
+      catch   = catch_MPA,
+      biomass = biomass_MPA,
+      ssb     = ssb_MPA
     ) %>%
     mutate(scenario = "Proposed MPA")
   
-  combined_df <- bind_rows(
-    patch_noMPA,
-    patch_existing_MPA,
-    patch_MPA
-  )
+  combined_df <- bind_rows(p1, p2, p3)
   
-  # Plot catch
-  ggplot(combined_df %>% filter(year >= 45), aes(x = year, y = catch, color = scenario)) +
-    facet_wrap(~critter) +
-    geom_line(size = 1) +
-    labs(title = "Catch over Time",
-         x = "Year",
-         y = "Catch") +
-    theme_minimal()
+  combined_df <- combined_df %>%
+    pivot_longer(
+      cols = c("catch", "biomass", "ssb"),
+      names_to = "metric",
+      values_to = "value"
+    )
   
-  # Plot BIOMASS
-  ggplot(combined_df %>% filter(year >= 45), aes(x = year, y = biomass, color = scenario)) +
-    facet_wrap(~critter) +
-    geom_line(size = 1) +
-    labs(title = "Biomass over Time",
-         x = "Year",
-         y = "Biomass") +
-    theme_minimal()
-  
-  # Plot Spawning stock biomass
-  ggplot(combined_df %>% filter(year >= 45), aes(x = year, y = ssb, color = scenario)) +
-    facet_wrap(~critter) +
-    geom_line(size = 1) +
-    labs(title = "SSB over Time",
-         x = "Year",
-         y = "SSB") +
-    theme_minimal()
-  
-  # Plot ssb heatmap
-  ssb_summary <- prs_sketch$fauna |>
-    filter(step == max(step)) |>
-    group_by(critter,x,y) |>
-    summarise(ssb = sum(ssb)) 
-  
-  ssb_located = ssb_summary %>% 
-    rename(id.x = x) %>% 
-    rename(id.y = y) %>% 
-    left_join(x_id, by="id.x") %>% 
-    left_join(y_id, by="id.y") 
-  
-  ggplot() +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") +
-    geom_tile(data = ssb_located, aes(x = x, y = y, fill = ssb)) +
-    facet_wrap(~critter) +
-    scale_fill_viridis_c() +
-    geom_sf(data = mpa_union, fill = NA, color = "gray50")
-  
-  # Plot catch heatmap
-  catch_summary <- prs_sketch$fleets |>
-    filter(step == max(step)) |>
-    group_by(fleet,x,y) |>
-    summarise(catch = sum(catch)) 
-  
-  catch_located = catch_summary %>% 
-    rename(id.x = x) %>% 
-    rename(id.y = y) %>% 
-    left_join(x_id, by="id.x") %>% 
-    left_join(y_id, by="id.y") 
-  
-  ggplot() +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") +
-    geom_tile(data = catch_located, aes(x = x, y = y, fill = catch)) +
-    facet_wrap(~fleet) +
-    scale_fill_viridis_c() +
-    geom_sf(data = mpa_union, fill = NA, color = "gray50")
-  
-  
-  
-  fleet_summary <- prs_sketch$fleets |>
-    filter(step == max(step)) |>
-    group_by(fleet,x,y) |>
-    summarise(catch = sum(catch),
-              effort = sum(effort)) |>
-    mutate(cpue = catch / effort)
-  
-  
-
-  fleet_summary |>
-    ggplot(aes(x,y,fill = cpue)) +
-    geom_tile() +
-    facet_wrap(~fleet) +
-    scale_fill_viridis_c()
-  
-  belize <- ne_countries(country = "Belize", returnclass = "sf")
-  geo_located = fleet_summary %>% 
-    rename(id.x = x) %>% 
-    rename(id.y = y) %>% 
-    left_join(x_id) %>% 
-    left_join(y_id) 
-  
-  ggplot() +
-    geom_sf(data = belize, fill = "gray90", color = "gray50") +
-    geom_tile(data = geo_located, aes(x = x, y = y, fill = cpue)) +
-    facet_wrap(~fleet) +
-    scale_fill_viridis_c() 
-  
-  fleet_summary |>
-    ggplot(aes(x,y,fill = cpue)) +
-    geom_tile() +
-    facet_wrap(~fleet) +
-    scale_fill_viridis_c() + 
-    geom_sf(data = belize, fill = "gray90", color = "gray50", inherit.aes = FALSE) 
-
-  cpue = geo_located %>% 
-    filter(fleet == "snapper_fleet") %>%
-    ungroup() %>%
-    dplyr::select(x, y, cpue) 
-  
-  r <- rast(
-    cpue,
-    type = "xyz",          # indicates the columns are x, y, and the value
-    crs  = "EPSG:4326"     # set this to the correct CRS for your data
-  )
-  
-  # (Optional) Rename the single layer to something more descriptive
-  names(r) <- "cpue"
-  
-  # Write out as a GeoTIFF
-  writeRaster(r, "cpue.tif", overwrite = TRUE)
-  
-  fleet_summary |>
-    ggplot(aes(x,y,fill = cpue)) +
-    geom_tile() +
-    
-  
-  
-  return(fauna$bigeye$max_age)
+  return(toJSON(combined_df))
 }
 
 lambdr::start_lambda()

@@ -22,10 +22,15 @@ RUN Rscript -e "install.packages(c('httr', 'jsonlite', 'logger', 'remotes'), rep
 RUN Rscript -e "remotes::install_github('mdneuzerling/lambdr')"
 
 # Install marlin with try-catch for error handling
-RUN Rscript -e "tryCatch({ remotes::install_github('DanOvando/marlin'); if (!('marlin' %in% installed.packages())) { stop('marlin installation failed') } else { cat('marlin successfully installed\\n') } }, error = function(e) { cat('Error during marlin installation:', conditionMessage(e), '\\n'); quit(status = 1) })"
+RUN Rscript -e "remotes::install_github('ropensci/bold')"
+RUN Rscript -e "remotes::install_github('ropensci/taxize')"
+RUN Rscript -e "tryCatch({ remotes::install_github('DanOvando/marlin@7f0e80b'); if (!('marlin' %in% installed.packages())) { stop('marlin installation failed') } else { cat('marlin successfully installed\\n') } }, error = function(e) { cat('Error during marlin installation:', conditionMessage(e), '\\n'); quit(status = 1) })"
 
 # Check if marlin is installed successfully
 RUN Rscript -e "if (!('marlin' %in% installed.packages())) { stop('marlin installation failed') } else { print('marlin successfully installed') }"
+
+# Additional libraries
+# RUN Rscript -e "install.packages(c('sf', 'dplyr', 'tidyr', 'purrr', 'sf', 'raster'), repos = 'https://packagemanager.rstudio.com/all/__linux__/centos7/latest')"
 
 RUN mkdir /lambda
 COPY runtime.R /lambda
