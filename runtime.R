@@ -4,6 +4,7 @@ library(jsonlite)
 library(dplyr)
 library(tidyr)
 library(purrr)
+library(mvtnorm)
 
 # Run_marlin is the function running in lambda
 run_marlin <- function(mpa_locations_in) {

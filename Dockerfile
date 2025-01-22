@@ -32,6 +32,15 @@ RUN Rscript -e "if (!('marlin' %in% installed.packages())) { stop('marlin instal
 # Additional libraries
 RUN Rscript -e "install.packages(c('dplyr', 'tidyr', 'purrr'), repos = 'https://packagemanager.rstudio.com/all/__linux__/centos7/latest')"
 
+# Install mvtnorm
+RUN dnf install -y gcc-gfortran libgfortran
+RUN ln -s /usr/lib64/libgfortran.so.5 /usr/lib64/libgfortran.so.3
+ENV LD_LIBRARY_PATH="/opt/R/${R_VERSION}/lib/R/lib:/usr/lib64:/usr/lib:${LD_LIBRARY_PATH}"
+RUN ln -s /usr/lib64/liblapack.so.3 /opt/R/${R_VERSION}/lib/R/lib/libRlapack.so \
+   && ln -s /usr/lib64/libblas.so.3 /opt/R/${R_VERSION}/lib/R/lib/libRblas.so
+RUN Rscript -e "install.packages('mvtnorm', dependencies=TRUE, repos='https://packagemanager.rstudio.com/all/__linux__/centos7/latest')"
+RUN Rscript -e "library(mvtnorm)" || { echo 'mvtnorm failed to load'; exit 1; }
+
 RUN mkdir /lambda
 COPY runtime.R /lambda
 RUN chmod 755 -R /lambda
