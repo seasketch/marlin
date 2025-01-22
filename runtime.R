@@ -4,14 +4,24 @@ library(jsonlite)
 library(dplyr)
 library(tidyr)
 library(purrr)
-library(sf)
-library(raster)
-library(readr)
 
 # Run_marlin is the function running in lambda
-run_marlin <- function(mpa_in) {
-  # Ensure piping is working
-  print(paste("input =", mpa_in))
+run_marlin <- function(mpa_locations_in) {
+  print(mpa_locations_in)
+  if (is.list(mpa_locations_in)) {
+    mpa_locations <- mpa_locations_in  # Use directly if parsed correctly
+  } else if (is.character(mpa_locations_in)) {
+    mpa_locations <- fromJSON(mpa_locations_in)  # Parse JSON string
+  } else {
+    stop("Invalid input format")
+  }
+  
+  if (!is.data.frame(mpa_locations)) {
+    mpa_locations <- do.call(rbind, lapply(mpa_locations, as.data.frame))
+  }
+  
+  print("Parsed MPA locations:")
+  print(mpa_locations, row.names = FALSE)
   
   # Create baseline parameters
   years <- 100
@@ -23,36 +33,28 @@ run_marlin <- function(mpa_in) {
   lobster_diffusion <-  0.5 # km^2/year
   max_hab_mult = 20
   
-  # Create habitat layers
-  reef <- raster("data/reef_ras.tif")
-  seagrass <- raster("data/seagrass_ras.tif")
-  seagrass_reef_hires <- raster("data/seagrass_reef_ras.tif");
-  seagrass_reef <- resample(seagrass_reef_hires, 
-                            seagrass, 
-                            method = "bilinear") 
-  
-  reef_ras <- as.data.frame(reef, xy = TRUE, na.rm = FALSE)
-  seagrass_ras <- as.data.frame(seagrass, xy = TRUE, na.rm = FALSE)
-  seagrass_reef_ras <- as.data.frame(seagrass_reef, xy = TRUE, na.rm = FALSE)
+  reef_ras <- read.csv("data/reef_ras.csv")
+  seagrass_ras <- read.csv("data/seagrass_ras.csv")
+  seagrass_reef_ras <- read.csv("data/seagrass_reef_ras.csv")
   
   colnames(reef_ras) <- c("x","y","layer")
   colnames(seagrass_ras) <- c("x","y","layer")
   colnames(seagrass_reef_ras) <- c("x","y","layer")
   
   reef_ras <- reef_ras %>%
-    filter(y < 18.225, y > 15.985) %>%
+    filter(y <= 18.225, y > 15.985) %>%
     mutate(
       layer = ifelse(is.na(layer), 0, layer),
       layer = layer/max(layer)
     )
   seagrass_ras <- seagrass_ras %>%
-    filter(y < 18.225, y > 15.985) %>%
+    filter(y <= 18.225, y > 15.985) %>%
     mutate(
       layer = ifelse(is.na(layer), 0, layer),
       layer = layer/max(layer)
     )
   seagrass_reef_ras <- seagrass_reef_ras %>%
-    filter(y < 18.225, y > 15.985) %>%
+    filter(y <= 18.225, y > 15.985) %>%
     mutate(
       layer = ifelse(is.na(layer), 0, layer),
       layer = layer/max(layer)
@@ -228,104 +230,6 @@ run_marlin <- function(mpa_in) {
                  "snapper_fleet" = snapper_fleet)
   
   fleets <- tune_fleets(fauna, fleets)
-
-  
-  
-  # Simulate baseline dynamic, without any MPAs
-  print("Simulate baseline")
-  no_mpa_sim <- simmar(fauna = fauna,
-                     fleets = fleets,
-                     years = 100)
-  
-  prs_nompa <- process_marlin(no_mpa_sim, keep_age = FALSE)
-  
-  patch_noMPA <-
-    map_df(no_mpa_sim, ~ map_df(.x, ~ tibble(
-      catch = rowSums(.x$c_p_fl),
-      biomass = rowSums(.x$b_p_a),
-      ssb = rowSums(.x$ssb_p_a),
-      patch = 1:nrow(.x$ssb_p_a)
-    ), .id = "critter"), .id = "step") %>% 
-    separate(step, "_", into = c("year", "season")) %>% 
-    mutate(year = as.double(year)) %>% 
-    group_by(year, critter) %>%
-    summarise(catch_noMPA = sum(catch),
-              biomass_noMPA = sum(biomass),
-              ssb_noMPA = sum(ssb))
-  
-  
-  # Simulate dynamics with only existing MPAs
-  print("Simulate existing MPAs")
-  mpa <- st_read("data/Existing-MPAs.geojson.json")
-  mpa_union <- st_union(mpa)
-  existing_mpa_sf <- st_as_sf(seagrass_ras, coords = c("x", "y"), crs = st_crs(mpa))
-  existing_mpa_sf <- existing_mpa_sf %>%
-    mutate(
-      mpa = rowSums(st_within(geometry, mpa_union, sparse = FALSE)) > 0
-    )
-  mpa_spatial <- existing_mpa_sf %>%
-    mutate(x = st_coordinates(geometry)[, 1],
-           y = st_coordinates(geometry)[, 2]) %>%
-    st_drop_geometry()
-  
-  mpa_locations <- mpa_spatial %>% 
-    left_join(x_id) %>% 
-    left_join(y_id) %>% 
-    dplyr::select(id.x, id.y, mpa) %>% 
-    rename(y=id.y,
-           x=id.x) %>% 
-    dplyr::select(x, y, mpa)
-  
-  existing_mpa_sim <- simmar(
-    fauna = fauna,
-    fleets = fleets,
-    manager = list(mpas = list(
-      locations = mpa_locations,
-      mpa_year = 50
-    )),
-    years = 100
-  )
-  
-  prs_existing <- process_marlin(existing_mpa_sim, keep_age = FALSE)
-  
-  patch_existing_MPA <-
-    map_df(existing_mpa_sim, ~ map_df(.x, ~ tibble(
-      catch = rowSums(.x$c_p_fl),
-      biomass = rowSums(.x$b_p_a),
-      ssb = rowSums(.x$ssb_p_a),
-      patch = 1:nrow(.x$ssb_p_a)
-    ), .id = "critter"), .id = "step") %>% 
-    separate(step, "_", into = c("year", "season")) %>% 
-    mutate(year = as.double(year)) %>% 
-    group_by(year, critter) %>% 
-    summarise(catch_existingMPA = sum(catch),
-              biomass_existingMPA = sum(biomass),
-              ssb_existingMPA = sum(ssb))
-  
-  
-  # Simulate dynamics with existing MPAs plus proposed MPAs
-  print("Simulate existing MPAs + new MPA")
-  existingmpa  <- st_read("data/Existing-MPAs.geojson.json")
-  mpa <- st_read(mpa_in)
-  mpa_union <- st_union(mpa, existingmpa)
-  seagrass_sf <- st_as_sf(seagrass_ras, coords = c("x", "y"), crs = st_crs(mpa_union))
-  seagrass_sf <- seagrass_sf %>%
-    mutate(
-      mpa = rowSums(st_within(geometry, mpa_union, sparse = FALSE)) > 0
-    )
-  
-  mpa_spatial <- seagrass_sf %>%
-    mutate(x = st_coordinates(geometry)[, 1],
-           y = st_coordinates(geometry)[, 2]) %>%
-    st_drop_geometry()
-  
-  mpa_locations <- mpa_spatial %>% 
-    left_join(x_id, by = "x") %>% 
-    left_join(y_id, by = "y") %>% 
-    dplyr::select(id.x, id.y, mpa) %>% 
-    rename(y=id.y,
-           x=id.x) %>% 
-    dplyr::select(x, y, mpa)
   
   mpa_sim <- simmar(
     fauna = fauna,
@@ -353,40 +257,8 @@ run_marlin <- function(mpa_in) {
               biomass_MPA = sum(biomass),
               ssb_MPA = sum(ssb))
   
-  p1 <- patch_noMPA %>%
-    rename(
-      catch   = catch_noMPA,
-      biomass = biomass_noMPA,
-      ssb     = ssb_noMPA
-    ) %>%
-    mutate(scenario = "No MPA")
   
-  p2 <- patch_existing_MPA %>%
-    rename(
-      catch   = catch_existingMPA,
-      biomass = biomass_existingMPA,
-      ssb     = ssb_existingMPA
-    ) %>%
-    mutate(scenario = "Existing MPA")
-  
-  p3 <- patch_MPA %>%
-    rename(
-      catch   = catch_MPA,
-      biomass = biomass_MPA,
-      ssb     = ssb_MPA
-    ) %>%
-    mutate(scenario = "Proposed MPA")
-  
-  combined_df <- bind_rows(p1, p2, p3)
-  
-  combined_df <- combined_df %>%
-    pivot_longer(
-      cols = c("catch", "biomass", "ssb"),
-      names_to = "metric",
-      values_to = "value"
-    )
-  
-  return(toJSON(combined_df))
+  return(toJSON(patch_MPA))
 }
 
 lambdr::start_lambda()

@@ -30,11 +30,16 @@ RUN Rscript -e "tryCatch({ remotes::install_github('DanOvando/marlin@7f0e80b'); 
 RUN Rscript -e "if (!('marlin' %in% installed.packages())) { stop('marlin installation failed') } else { print('marlin successfully installed') }"
 
 # Additional libraries
-# RUN Rscript -e "install.packages(c('sf', 'dplyr', 'tidyr', 'purrr', 'sf', 'raster'), repos = 'https://packagemanager.rstudio.com/all/__linux__/centos7/latest')"
+RUN Rscript -e "install.packages(c('dplyr', 'tidyr', 'purrr'), repos = 'https://packagemanager.rstudio.com/all/__linux__/centos7/latest')"
 
 RUN mkdir /lambda
 COPY runtime.R /lambda
 RUN chmod 755 -R /lambda
+
+RUN mkdir -p /lambda/data
+COPY data/reef_ras.csv /lambda/data/
+COPY data/seagrass_ras.csv /lambda/data/
+COPY data/seagrass_reef_ras.csv /lambda/data/
 
 RUN printf '#!/bin/sh\ncd /lambda\nRscript runtime.R' > /var/runtime/bootstrap \
     && chmod +x /var/runtime/bootstrap
