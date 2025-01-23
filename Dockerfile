@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lambda/provided:latest-x86_64
+FROM public.ecr.aws/lambda/provided@sha256:063f97dc6bf02d53d7e90b1ef83fe072d88dc3bd36ea3e8cf1a73beb62925896
 
 ENV R_VERSION=4.3.2
 

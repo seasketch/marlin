@@ -256,7 +256,7 @@ run_marlin <- function(mpa_locations_in) {
       patch = 1:nrow(.x$ssb_p_a)
     ), .id = "critter"), .id = "step") %>% 
     separate(step, "_", into = c("year", "season")) %>% 
-    mutate(year = as.double(year) - 50) %>%
+    mutate(year = as.double(year) - 45) %>%
     filter(year >= 0) %>% 
     group_by(year, critter) %>% 
     summarise(catch = sum(catch),

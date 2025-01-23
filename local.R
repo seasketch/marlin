@@ -240,7 +240,7 @@ patch_noMPA <-
     patch = 1:nrow(.x$ssb_p_a)
   ), .id = "critter"), .id = "step") %>% 
   separate(step, "_", into = c("year", "season")) %>% 
-  mutate(year = as.double(year) - 50) %>%
+  mutate(year = as.double(year) - 45) %>%
   filter(year >= 0) %>%
   group_by(year, critter) %>%
   summarise(catch = sum(catch),
@@ -292,7 +292,7 @@ patch_existing_MPA <-
     patch = 1:nrow(.x$ssb_p_a)
   ), .id = "critter"), .id = "step") %>% 
   separate(step, "_", into = c("year", "season")) %>% 
-  mutate(year = as.double(year) - 50) %>%
+  mutate(year = as.double(year) - 45) %>%
   filter(year >= 0) %>%
   group_by(year, critter) %>% 
   summarise(catch = sum(catch),
@@ -334,7 +334,7 @@ mpa_locations <- mpa_spatial %>%
 print(toJSON(mpa_locations))
 returned <- run_marlin(toJSON(mpa_locations))
 print(returned)
-patch_MPA <- fromJSON(returned)
+patch_MPA <- fromJSON(as.data.frame(returned)$body)
 
 combined_df <- bind_rows(patch_noMPA, patch_existing_MPA, patch_MPA)
 
@@ -346,14 +346,7 @@ combined_df <- combined_df %>%
   )
 
 combined_df %>%
-  filter(year == 100) %>%
-  ggplot(aes(x = metric, y = value, fill = scenario)) +
-  facet_wrap(~ critter) +
-  geom_col(position = "dodge") +
-  theme_minimal()
-
-combined_df %>%
-  filter(year >= 45, metric == "catch") %>%
+  filter(metric == "catch") %>%
   ggplot(aes(x = year, y = value, color = scenario)) +
   facet_wrap(~ critter) +
   geom_line(size = 1) +
@@ -361,7 +354,7 @@ combined_df %>%
   theme_minimal()
 
 combined_df %>%
-  filter(year >= 45, metric == "biomass") %>%
+  filter(metric == "biomass") %>%
   ggplot(aes(x = year, y = value, color = scenario)) +
   facet_wrap(~ critter) +
   geom_line(size = 1) +
@@ -369,7 +362,7 @@ combined_df %>%
   theme_minimal()
 
 combined_df %>%
-  filter(year >= 45, metric == "ssb") %>%
+  filter(metric == "ssb") %>%
   ggplot(aes(x = year, y = value, color = scenario)) +
   facet_wrap(~ critter) +
   geom_line(size = 1) +
