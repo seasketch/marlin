@@ -240,15 +240,18 @@ patch_noMPA <-
     patch = 1:nrow(.x$ssb_p_a)
   ), .id = "critter"), .id = "step") %>% 
   separate(step, "_", into = c("year", "season")) %>% 
-  mutate(year = as.double(year)) %>% 
+  mutate(year = as.double(year) - 50) %>%
+  filter(year >= 0) %>%
   group_by(year, critter) %>%
-  summarise(catch_noMPA = sum(catch),
-            biomass_noMPA = sum(biomass),
-            ssb_noMPA = sum(ssb))
+  summarise(catch = sum(catch),
+            biomass = sum(biomass),
+            ssb = sum(ssb)) %>%
+  mutate(scenario = "No MPA")
+
+write(toJSON(patch_noMPA), "data/noMPA.json")
 
 
-# Simulate dynamics with only existing MPAs
-print("Simulate existing MPAs")
+# Simulate existing MPAs
 mpa <- st_read("data/Existing-MPAs.geojson.json")
 mpa_union <- st_union(mpa)
 existing_mpa_sf <- st_as_sf(seagrass_ras, coords = c("x", "y"), crs = st_crs(mpa))
@@ -289,14 +292,22 @@ patch_existing_MPA <-
     patch = 1:nrow(.x$ssb_p_a)
   ), .id = "critter"), .id = "step") %>% 
   separate(step, "_", into = c("year", "season")) %>% 
-  mutate(year = as.double(year)) %>% 
+  mutate(year = as.double(year) - 50) %>%
+  filter(year >= 0) %>%
   group_by(year, critter) %>% 
-  summarise(catch_existingMPA = sum(catch),
-            biomass_existingMPA = sum(biomass),
-            ssb_existingMPA = sum(ssb))
+  summarise(catch = sum(catch),
+            biomass = sum(biomass),
+            ssb = sum(ssb)) %>%
+  mutate(scenario = "Existing MPA")
+
+write(toJSON(patch_existing_MPA), "data/existingMPAs.json")
+
 
 # Simulate dynamics with existing MPAs plus proposed MPAs
-print("Simulate existing MPAs + new MPA")
+# This now happens in lambda
+# Create inputs for lambda
+write(toJSON(seagrass_ras %>% select(x,y)), "data/coordinates.json")
+
 existingmpa  <- st_read("data/Existing-MPAs.geojson.json")
 mpa_in <- read_file("data/sketch.geojson.json")
 mpa <- st_read(mpa_in)
@@ -325,33 +336,7 @@ returned <- run_marlin(toJSON(mpa_locations))
 print(returned)
 patch_MPA <- fromJSON(returned)
 
-p1 <- patch_noMPA %>%
-  rename(
-    catch   = catch_noMPA,
-    biomass = biomass_noMPA,
-    ssb     = ssb_noMPA
-  ) %>%
-  mutate(scenario = "No MPA")
-
-p2 <- patch_existing_MPA %>%
-  rename(
-    catch   = catch_existingMPA,
-    biomass = biomass_existingMPA,
-    ssb     = ssb_existingMPA
-  ) %>%
-  mutate(scenario = "Existing MPA")
-
-
-p3 <- patch_MPA %>%
-  rename(
-    catch   = catch_MPA,
-    biomass = biomass_MPA,
-    ssb     = ssb_MPA
-  ) %>%
-  mutate(scenario = "Proposed MPA")
-
-
-combined_df <- bind_rows(p1, p2, p3)
+combined_df <- bind_rows(patch_noMPA, patch_existing_MPA, patch_MPA)
 
 combined_df <- combined_df %>%
   pivot_longer(

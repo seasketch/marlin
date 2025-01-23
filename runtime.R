@@ -8,11 +8,10 @@ library(mvtnorm)
 
 # Run_marlin is the function running in lambda
 run_marlin <- function(mpa_locations_in) {
-  print(mpa_locations_in)
   if (is.list(mpa_locations_in)) {
-    mpa_locations <- mpa_locations_in  # Use directly if parsed correctly
+    mpa_locations <- mpa_locations_in 
   } else if (is.character(mpa_locations_in)) {
-    mpa_locations <- fromJSON(mpa_locations_in)  # Parse JSON string
+    mpa_locations <- fromJSON(mpa_locations_in)
   } else {
     stop("Invalid input format")
   }
@@ -21,19 +20,19 @@ run_marlin <- function(mpa_locations_in) {
     mpa_locations <- do.call(rbind, lapply(mpa_locations, as.data.frame))
   }
   
-  print("Parsed MPA locations:")
+  print("MPA locations:")
   print(mpa_locations, row.names = FALSE)
   
   # Create baseline parameters
+  print("Creating baseline parameters")
   years <- 100
   seasons <- 1
   time_step <- 1 / seasons
-  
-  # Set diffusion rates
   snapper_diffusion <- 1 # km^2/year
   lobster_diffusion <-  0.5 # km^2/year
   max_hab_mult = 20
   
+  print("Load habitat layers")
   reef_ras <- read.csv("data/reef_ras.csv")
   seagrass_ras <- read.csv("data/seagrass_ras.csv")
   seagrass_reef_ras <- read.csv("data/seagrass_reef_ras.csv")
@@ -90,6 +89,7 @@ run_marlin <- function(mpa_locations_in) {
                        fleet = c(1, 2))
   
   # Get spatial parameters from habitat layers
+  print("Gather spatial parameters")
   patches <- nrow(juvenile_habitat)*ncol(juvenile_habitat)
   patch_area <- 57 # km2
   simulation_area <- patch_area * patches #km2
@@ -97,6 +97,7 @@ run_marlin <- function(mpa_locations_in) {
   
   # Define species
   # Mutton snapper, Lutjanus analis
+  print("Define species")
   snapper <- create_critter(
     query_fishlife = FALSE,
     linf = 87.4,
@@ -167,6 +168,7 @@ run_marlin <- function(mpa_locations_in) {
     )
   
   # Create fleets
+  print("Define fleets")
   snapper_fleet = create_fleet(
     list(
       snapper = Metier$new(
@@ -232,6 +234,8 @@ run_marlin <- function(mpa_locations_in) {
   
   fleets <- tune_fleets(fauna, fleets)
   
+  
+  print("Run MPA simulation")
   mpa_sim <- simmar(
     fauna = fauna,
     fleets = fleets,
@@ -252,14 +256,24 @@ run_marlin <- function(mpa_locations_in) {
       patch = 1:nrow(.x$ssb_p_a)
     ), .id = "critter"), .id = "step") %>% 
     separate(step, "_", into = c("year", "season")) %>% 
-    mutate(year = as.double(year)) %>% 
+    mutate(year = as.double(year) - 50) %>%
+    filter(year >= 0) %>% 
     group_by(year, critter) %>% 
-    summarise(catch_MPA = sum(catch),
-              biomass_MPA = sum(biomass),
-              ssb_MPA = sum(ssb))
+    summarise(catch = sum(catch),
+              biomass = sum(biomass),
+              ssb = sum(ssb)) %>%
+    mutate(scenario = "Proposed MPA")
   
-  
-  return(toJSON(patch_MPA))
+  print("Returning")
+  print(toJSON(patch_MPA))
+  json_body <- toJSON(patch_MPA, auto_unbox = TRUE)
+  return(
+    list(
+      statusCode = 200,
+      headers = list("Content-Type" = "application/json"),
+      body = json_body
+    )
+  )
 }
 
 lambdr::start_lambda()
